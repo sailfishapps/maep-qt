@@ -1,11 +1,15 @@
 #include "osm-gps-map/osm-gps-map-qt.h"
 
-#include <QApplication>
+#include <QGuiApplication>
+#ifdef HAS_BOOSTER
+#include <MDeclarativeCache>
+#endif
 #if (QT_VERSION >= QT_VERSION_CHECK(5, 0, 0))
 #include <QDir>
 #include <QQmlEngine>
 #include <QQuickView>
 #include <QQuickItem>
+#include <QQuickWindow>
 #else
 #include <QtDeclarative>
 #include <QDeclarativeView>
@@ -13,17 +17,17 @@
 #endif
 
 namespace Maep {
-  QApplication *createApplication(int &argc, char **argv);
+  QGuiApplication *createApplication(int &argc, char **argv);
   QQuickView *createView(const QString &file);
   void showView(QQuickView* view);
 }
 
-QApplication *Maep::createApplication(int &argc, char **argv)
+QGuiApplication *Maep::createApplication(int &argc, char **argv)
 {
 #ifdef HAS_BOOSTER
     return MDeclarativeCache::qApplication(argc, argv);
 #else
-    return new QApplication(argc, argv);
+    return new QGuiApplication(argc, argv);
 #endif
 }
 QQuickView *Maep::createView(const QString &file)
@@ -62,7 +66,7 @@ QQuickView *Maep::createView(const QString &file)
           }
         else
           // Otherwise use deployement path as is
-          view->setSource(QUrl::fromLocalFile(path + file));
+          view->setSource(QUrl::fromLocalFile(path + QDir::separator() + file));
       }
     return view;
 }
@@ -84,13 +88,16 @@ Q_DECL_EXPORT int main(int argc, char *argv[])
 {
   bool isDesktop;
 
+  qmlRegisterType<Maep::Conf>("Maep", 1, 0, "Conf");
   qmlRegisterType<Maep::GeonamesPlace>("Maep", 1, 0, "GeonamesPlace");
   qmlRegisterType<Maep::GeonamesEntry>("Maep", 1, 0, "GeonamesEntry");
+  qmlRegisterType<Maep::Track>("Maep", 1, 0, "Track");
   qmlRegisterType<Maep::GpsMap>("Maep", 1, 0, "GpsMap");
   qmlRegisterType<Maep::GpsMapCover>("Maep", 1, 0, "GpsMapCover");
 
-  QScopedPointer<QApplication> app(Maep::createApplication(argc, argv));
+  QScopedPointer<QGuiApplication> app(Maep::createApplication(argc, argv));
   isDesktop = app->arguments().contains("-desktop");
+  QQuickWindow::setDefaultAlphaBuffer(true);
 
   QScopedPointer<QQuickView> view(Maep::createView((isDesktop)?"main-nosilica.qml":"main.qml"));
   Maep::showView(view.data());

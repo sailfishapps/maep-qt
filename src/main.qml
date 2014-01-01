@@ -18,9 +18,8 @@
 import QtQuick 2.0
 import Sailfish.Silica 1.0
 import Maep 1.0
-import QtWebKit 3.0
+
 import QtPositioning 5.0
-import Qt.labs.folderlistmodel 1.0
 
 ApplicationWindow
 {
@@ -41,7 +40,7 @@ ApplicationWindow
             PullDownMenu {
                 MenuItem {
                     text: "About Mæp"
-                    //onClicked: pageStack.push(aboutpage)
+                    onClicked: pageStack.push(aboutpage)
                 }
                 MenuItem {
                     TextSwitch {
@@ -53,6 +52,15 @@ ApplicationWindow
                     }
                     onClicked: {orientationcheck.checked = !orientationcheck.checked}
                 }
+		MenuItem {
+		    TextSwitch {
+			id: pixelcheck
+			text: "Draw map double pixel"
+			checked: map.double_pixel
+	 		onCheckedChanged: { map.double_pixel = checked }
+		    }
+		    onClicked: { pixelcheck.checked = !pixelcheck.checked }
+		}
 	        MenuItem {
 	            TextSwitch {
 		        id: wikicheck
@@ -76,27 +84,30 @@ ApplicationWindow
                 MenuItem {
                     text: "Import track"
                     font.pixelSize: Theme.fontSizeSmall
-	            color: Theme.secondaryColor
+	            color: Theme.secondaryHighlightColor
                     onClicked: { var dialog = pageStack.push(trackopen)
-		                 dialog.accepted.connect(function() { if (dialog.trackFile) { map.setTrackFromFile(dialog.trackFile) } }) }
+		                 dialog.accepted.connect(
+                                     function() {
+                                         if (!dialog.track.isEmpty()) {
+                                             map.setTrack(dialog.track) }
+                                     } ) }
                 }
                 MenuItem {
                     text: "Export track"
-                    visible: map.track_available
+                    visible: map.track != undefined
                     font.pixelSize: Theme.fontSizeSmall
-                    color: Theme.secondaryColor
-                    //onClicked: pageStack.push(Qt.resolvedUrl("SecondPage.qml"))
+                    color: Theme.secondaryHighlightColor
+                    onClicked: pageStack.push(tracksave, { track: map.track })
                 }
                 MenuItem {
                     text: "Clear track"
-                    visible: map.track_available
+                    visible: map.track != undefined
                     font.pixelSize: Theme.fontSizeSmall
-                    color: Theme.secondaryColor
-                    onClicked: map.clearTrack()
+                    color: Theme.secondaryHighlightColor
+                    onClicked: map.setTrack()
                 }
+		onActiveChanged: { active ? map.opacity = Theme.highlightBackgroundOpacity : map.opacity = 1 }
             }
-	    onMovementStarted: { map.opacity = Theme.highlightBackgroundOpacity }
-            onMovementEnded: { map.opacity = 1 }
 
             // Tell SilicaFlickable the height of its content.
             width: page.width
@@ -138,6 +149,7 @@ ApplicationWindow
         }
         Drawer {
  	    id: drawer
+            z: -1
             anchors.top: header.bottom
             width: page.width
             height: page.height - header.height
@@ -152,27 +164,59 @@ ApplicationWindow
                   width: page.width
                   height: page.height - header.height*/
 	        anchors.fill: parent
-                onSearchRequest: { search.focus = true; search.label = "Place search" }
+                onSearchRequest: { search.focus = true
+                                   search.label = "Place search" }
                 onWikiEntryChanged: { pageStack.push(wiki) }
 	        onWikiStatusChanged: { wikicheck.checked = status }
-                onSearchResults: { search.label = search_results.length + " place(s) found"
-			           busy.running = false
-				   placeview.model = search_results
-			           drawer.open = true }
+                onSearchResults: {
+                    search.label = search_results.length + " place(s) found"
+		    busy.running = false
+		    if (search_results.length > 0) {
+			placeview.model = search_results
+			drawer.open = true }
+		}
 	        Behavior on opacity {
                     FadeAnimation {}
                 }
 		onFocusChanged: { if (focus) { drawer.open = false } }
             }
-        }
+	    Row {
+		anchors.bottom: parent.bottom
+		width: page.width
+		height: Theme.itemSizeMedium
+		z: map.z + 1
+                visible: !search.focus && !drawer.open
+		IconButton {
+		    id: zoomout
+		    icon.source: "image://theme/icon-camera-zoom-wide"
+		    onClicked: { map.zoomOut() }
+		}
+                IconButton {
+		    id: zoomin
+                    icon.source: "image://theme/icon-camera-zoom-tele"
+		    onClicked: { map.zoomIn() }
+                }
+                Button {
+		    width: parent.width - zoomout.width - zoomin.width - autocenter.width
+                    text: map.sourceLabel(map.source)
+		    /*font.pixelSize: Theme.fontSizeSmall*/
+                    onClicked: { pageStack.push(sources) }
+                }
+                IconButton {
+                    id: autocenter
+                    icon.source: "image://theme/icon-m-gps"
+                    anchors.rightMargin: Theme.paddingSmall
+                    anchors.leftMargin: Theme.paddingSmall
+		    enabled: map.gps_coordinate.latitude <= 90 && map.gps_coordinate.latitude >= -90
+		    highlighted: map.auto_center
+		    onClicked: { map.auto_center = !map.auto_center }
+                }
+	    }
+	}
 
         SilicaListView {
             id: placeview
             anchors.fill: parent
-            /*header: DialogHeader {
-              title: "Select a place"
-              }*/
-	    onModelChanged: { console.log("hey, model changed"); console.log(map.search_results.count()); }
 
 	    PullDownMenu {
 	        MenuItem {
@@ -187,11 +231,6 @@ ApplicationWindow
 		    font.pixelSize: Theme.fontSizeSmall
                     onClicked: { drawer.open = false }
                 }
-            }
-
-	    ViewPlaceholder {
-                enabled: placeview.count == 0
-                text: "No result"
             }
 
             delegate: ListItem {
@@ -234,15 +273,67 @@ ApplicationWindow
         enabled: true
         iconBackground: true
         CoverAction {
-            iconSource: "image://theme/icon-camera-zoom-wide" /*"image://theme/icon-m-remove"*/
+            iconSource: "image://theme/icon-camera-zoom-wide"
             onTriggered: map.zoomOut()
         }
         CoverAction {
-            iconSource: "image://theme/icon-camera-zoom-tele" /*"image://theme/icon-m-add"*/
+            iconSource: "image://theme/icon-camera-zoom-tele"
             onTriggered: map.zoomIn()
         }
     }
 
+    ListModel {
+        id: sourceModel
+	ListElement { source: GpsMap.SOURCE_OPENSTREETMAP }
+	ListElement { source: GpsMap.SOURCE_OPENSTREETMAP_RENDERER }
+	ListElement { source: GpsMap.SOURCE_OPENCYCLEMAP }
+        ListElement { source: GpsMap.SOURCE_OSM_PUBLIC_TRANSPORT }
+        ListElement { source: GpsMap.SOURCE_GOOGLE_STREET }
+        ListElement { source: GpsMap.SOURCE_VIRTUAL_EARTH_STREET }
+        ListElement { source: GpsMap.SOURCE_VIRTUAL_EARTH_SATELLITE }
+        ListElement { source: GpsMap.SOURCE_VIRTUAL_EARTH_HYBRID }
+    }
+
+    Component {
+        id: sources
+
+        Dialog {
+	    id: sourcedialog
+            allowedOrientations: page.allowedOrientations
+            
+            SilicaListView {
+                id: sourcelist
+                anchors.fill: parent
+
+                header:  DialogHeader {
+                    title: "Select a tile source"
+                }
+                model: sourceModel
+
+                delegate: ListItem {
+		    
+		    height: Theme.itemSizeMedium
+                    Label { text: map.sourceLabel(source)
+                            width: parent.width - img.width
+                            anchors.left: img.right
+                            anchors.verticalCenter: parent.verticalCenter
+                            horizontalAlignment: Text.AlignHCenter }
+                    Image { id: img
+                            clip: true; fillMode: Image.Pad
+                            width: Theme.itemSizeMedium * 1.5
+                            height: Theme.itemSizeMedium
+                            anchors.left: parent.left
+                            anchors.leftMargin: Theme.paddingSmall
+                            onVisibleChanged: {
+                                if (visible) { source = map.getCenteredTile(model.source) } }
+                          }
+                    onClicked: { map.source = model.source; sourcedialog.accept() }
+                }
+	        VerticalScrollDecorator { flickable: sourcelist }
+            }
+        }
+    }
+            
     Component {
         id: wiki
 
@@ -303,8 +394,9 @@ ApplicationWindow
                 anchors.top: page.isPortrait ? coordinates.bottom : thumbnail.bottom
 	    }
 	    Button {
-		text: "View Wikipedia page"
-		onClicked: { pageStack.pushAttached(wikipedia); pageStack.navigateForward() }
+		text: "Open Wikipedia page"
+		/*onClicked: { pageStack.pushAttached(wikipedia); pageStack.navigateForward() }*/
+                onClicked: { Qt.openUrlExternally(map.wiki_entry.url) }
 		anchors.top: body.bottom
 		anchors.topMargin: page.isPortrait ? Theme.paddingLarge : Theme.paddingSmall
 		anchors.horizontalCenter: wikititle.horizontalCenter
@@ -321,7 +413,7 @@ ApplicationWindow
         }
     }
 
-    Component {
+    /*Component {
         id: wikipedia
         
         Page {
@@ -368,147 +460,77 @@ ApplicationWindow
         	webView.url = map.wiki_entry.url
             }
         }
+    }*/
+
+    Component {
+	id: tracksave
+
+	Dialog {
+	    property Track track
+	    property Conf conf:  Conf {  }
+	    
+            function save(url) { track.toFile(url); accept() }
+	    function overwrite(url) {
+		console.log("overwritting " + url)
+		console.log("export track" + track)
+                remorse.execute("Overwrite file ?", function() { save(url) })
+            }
+	    onOpened: { var url = conf.getString("track_path")
+                        if (url.length > 0) {
+                            chooser.folder = url.substring(0, url.lastIndexOf("/"))
+                        } else { chooser.folder = StandardPaths.documents } }
+	    RemorsePopup { id: remorse }
+	    FileChooser {
+		id: chooser
+		anchors.fill: parent
+                saveMode: true
+		title: DialogHeader { title: "Save current track" }
+		onSelectionChanged: { overwrite(selection) }
+		onEntryChanged: { save(selection) }
+	    }
+	}
     }
 
     Component {
 	id: trackopen
 
 	Dialog {
-	    id: trackopen_dialog
-	    property string trackFile
-	    onTrackFileChanged: { accept() }
-
-	    allowedOrientations: page.allowedOrientations
-	    FolderListModel {
-		id: folderModel
-                folder: StandardPaths.documents
-		function basename() {
-                    var url = folder.toString()
-		    if (url == "file:///home/nemo") {
-			return "My Jolla"
-		    } else {
-                        return url.substring(url.lastIndexOf("/") + 1)
-		    }
-                }
-		function dirname() {
-		    var url = parentFolder.toString()
-		    if (url == "file:///home") {
-			return "file:///media"
-		    } else if (url == "file:///") {
-			return ""
-		    } else {
-			return url
-		    }
-		}
-		function navigateUp() {
-		    var url = dirname()
-		    folder = url
-		    if (url == "file:///media") {
-			append({"fileName": "My Jolla", "filePath": "file:///home/nemo"})
-		    }
-		}
+	    property Track track: Track { onFileError: { console.log(errorMsg);
+                                                         banner.text = errorMsg;
+                                                         banner.active = true } }
+	    property Conf conf:  Conf {  }
+	    
+	    function load(url) {
+                if (track.set(url)) { accept() }
             }
-	    Component {
-		id: trackopen_header
-	        Column {
-		    width: parent.width
-	            DialogHeader {
-		        title: "Select a track file"
-	            }
-	            Row {
-		        id: trackopen_head
-		        height: Theme.itemSizeSmall
-		        width: parent.width
-		        IconButton {
-		            id: trackopen_back
-		            icon.source: "image://theme/icon-header-back"
-		            enabled: folderModel.dirname().length > 0
-		            onClicked: { folderModel.navigateUp() }
-		        }
-		        Button {
-		            width: parent.width - trackopen_back.width - trackopen_options.width
-		            text: folderModel.basename()
-		            visible: folderModel.dirname().length > 0
-		            enabled: false
-		        }
-		        IconButton {
-		            id: trackopen_options
-		            icon.source: "image://theme/icon-m-levels"
-		            onClicked: { trackopen_controls.open = !trackopen_controls.open }
-		        }
-	            }
-	        }
+	    onOpened: { var url = conf.getString("track_path")
+                        if (url.length > 0) {
+                            chooser.folder = url.substring(0, url.lastIndexOf("/"))
+                        } else { chooser.folder = StandardPaths.documents } }
+	    FileChooser {
+		id: chooser
+		anchors.fill: parent
+		title: DialogHeader { title: "Select a track file" }
+		onSelectionChanged: { load(selection) }
 	    }
-	    SilicaListView {
-		id: trackopen_list
-		header: trackopen_header
-		anchors {
-		    fill: parent
-		    rightMargin: page.isPortrait ? 0 : trackopen_controls.visibleSize
-                    bottomMargin: page.isPortrait ? trackopen_controls.visibleSize + Theme.paddingLarge: 0
-		}
-		model: folderModel
-		Formatter {
-            	    id: formatter
-        	}
-		ViewPlaceholder {
-            	    enabled: folderModel.count == 0
-                    text: "No files"
-                }
-		delegate: ListItem {
-		    contentHeight: Theme.itemSizeSmall * 0.75
-		    Image {
-			id: trackopen_icon
-			source: "image://theme/icon-m-folder"
-			visible: fileIsDir
-		    }
-		    Label {
-                        text: fileName
-		        font.pixelSize: Theme.fontSizeSmall
-		        anchors.fill: parent
-			anchors.leftMargin: trackopen_icon.width + Theme.paddingSmall
-		        color: highlighted ? Theme.highlightColor : Theme.primaryColor
-		    }
-		    Label {
-		        font.pixelSize: Theme.fontSizeExtraSmall
-		        text: formatter.formatDate(fileModified, Formatter.Timepoint) + " - " + formatter.formatFileSize(fileSize)
-		        color: Theme.secondaryColor
-		        anchors.right: parent.right
-		        anchors.bottom: parent.bottom
-		    }
-	            onClicked: { fileIsDir ? folderModel.folder = filePath : trackopen_dialog.trackFile = filePath }
-		}
+	    Notification {
+		id: banner
+		anchors.fill: parent
 	    }
-	    VerticalScrollDecorator { flickable: trackopen_list }
-	    DockedPanel {
-        	id: trackopen_controls
-		open: false
-
-        	width: page.isPortrait ? parent.width : Theme.itemSizeSmall
-        	height: page.isPortrait ? Theme.itemSizeSmall : parent.height
-
-        	dock: page.isPortrait ? Dock.Bottom : Dock.Right
-		
-		Flow {
-		    anchors.fill: parent
-
-            	    anchors.centerIn: parent
-		    ComboBox {
-			width: page.isPortrait ? parent.width / 2 : parent.width
-			label: "sort by"
-			menu: ContextMenu {
-        		    MenuItem { text: "name"; onClicked: { folderModel.sortField = FolderListModel.Name } }
-        		    MenuItem { text: "date"; onClicked: { folderModel.sortField = FolderListModel.Time } }
-		            MenuItem { text: "type"; onClicked: { folderModel.sortField = FolderListModel.Type } }
-		        }
-		    }
-		    TextSwitch {
-			width: page.isPortrait ? parent.width / 2 : parent.width
-			text: "reversed"
-			onCheckedChanged: { folderModel.sortReversed = checked }
-		    }
-		}
-            }
 	}
+    }
+
+    Component {
+        id: aboutpage
+        Page {
+            anchors.fill: parent
+            About {
+                anchors.fill: parent
+                version: map.version
+                date: map.compilation_date
+                authors: map.authors
+                license: map.license
+            }
+        }
     }
 }
